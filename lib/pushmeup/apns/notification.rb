@@ -1,46 +1,74 @@
 module APNS
   class Notification
-    attr_accessor :device_token, :alert, :badge, :sound, :other
+    attr_accessor :token, :alert, :badge, :sound, :other, :id, :expiry, :priority
 
-    def initialize(device_token, message)
-      self.device_token = device_token
+    def initialize(token, message)
+      @token = token
       if message.is_a?(Hash)
-        self.alert = message[:alert]
-        self.badge = message[:badge]
-        self.sound = message[:sound]
-        self.other = message[:other]
+        @alert    = message[:alert]
+        @badge    = message[:badge]
+        @expiry   = message[:expiry]
+        @id       = message[:id]
+        @other    = message[:other]
+        @priority = message[:priority]
+        @sound    = message[:sound]
       elsif message.is_a?(String)
-        self.alert = message
+        @alert = message
       else
         raise "Notification needs to have either a Hash or String"
       end
     end
 
     def packaged_notification
-      pt = self.packaged_token
-      pm = self.packaged_message
-      [0, 0, 32, pt, 0, pm.bytesize, pm].pack("ccca*cca*")
+      frame_data = [device_token_item,
+                    payload_item,
+                    identifier_item,
+                    expiration_item,
+                    priority_item].compact.join
+      [2, frame_data.bytes.count, frame_data].pack('cNa*')
     end
 
-    def packaged_token
-      [device_token.gsub(/[\s|<|>]/,'')].pack('H*')
+    private
+
+    def device_token_item
+      [1, 32, @token.gsub(/[<\s>]/, '')].pack('cnH*')
     end
 
-    def packaged_message
+    def payload_item
+      json = payload.to_json
+      [2, json.bytes.count, json].pack('cna*')
+    end
+
+    def identifier_item
+      [3, 4, @id].pack('cnN') unless @id.nil?
+    end
+
+    def expiration_item
+      [4, 4, @expiry].pack('cnN') unless @expiry.nil?
+    end
+
+    def priority_item
+      [5, 1, @priority].pack('cnc') unless @priority.nil?
+    end
+
+    def payload
       aps = {'aps'=> {} }
-      aps['aps']['alert'] = self.alert if self.alert
-      aps['aps']['badge'] = self.badge if self.badge
-      aps['aps']['sound'] = self.sound if self.sound
-      aps.merge!(self.other) if self.other
-      aps.to_json.gsub(/\\u([\da-fA-F]{4})/) {|m| [$1].pack("H*").unpack("n*").pack("U*")}
+      aps['aps']['alert'] = @alert if @alert
+      aps['aps']['badge'] = @badge if @badge
+      aps['aps']['sound'] = @sound if @sound
+      aps.merge!(@other) if @other
+      aps
     end
 
-    def ==(that)
-      device_token == that.device_token &&
-      alert == that.alert &&
-      badge == that.badge &&
-      sound == that.sound &&
-      other == that.other
+    def ==(other)
+      @alert    == other.alert &&
+      @badge    == other.badge &&
+      @expiry   == other.expiry &&
+      @id       == other.id &&
+      @other    == other.other &&
+      @priority == other.priority &&
+      @sound    == other.sound &&
+      @token    == other.token
     end
 
   end
